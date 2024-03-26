@@ -1,0 +1,45 @@
+#version 430 core
+
+// Buffer binding point for the attractor uniform block
+layout(std140, binding = 0) uniform attractor_block {
+    vec4 attractor[64];   // xyz = position, w = mass
+};
+
+layout (local_size_x = 128) in;
+
+// Buffer containing pos and vel of particles
+layout(rgba32f, binding = 0) uniform imageBuffer position_buffer;
+layout(rgba32f, binding = 1) uniform imageBuffer velocity_buffer;
+
+// Delta time
+uniform float dt;
+
+void main() {
+    // Read current position and velocity from buffer w.r.t invocationID
+    vec4 vel = imageLoad(velocity_buffer, int(gl_GlobalInvocationID.x));
+    vec4 pos = imageLoad(position_buffer, int(gl_GlobalInvocationID.x));
+
+    // Update position using curr vel * time
+    pos.xyz += vel.xyz * dt;
+
+    // Update life of particle (w component)
+    pos.w -= 0.01 * dt;
+
+    int i;
+    // For each attractor
+    for(i = 0; i < 4; ++i) {
+        vec3 dist = normalize(attractor[i].xyz - pos.xyz); 
+        // Calculating force on each particle
+        vel.xyz += dt * dt * attractor[i].w * (dist / (dot(dist, dist) + 10.0));
+    }
+
+    // If the particle expires, reset it
+    if (pos.w <= 0.0) {
+        pos.xyz = -pos.xyz * 0.01;
+        pos.w += 1.0f;
+    }
+
+    // Store new pos and velocity back into the buffer
+    imageStore(position_buffer, int(gl_GlobalInvocationID.x), pos);
+    imageStore(velocity_buffer, int(gl_GlobalInvocationID.x), vel);
+}
