@@ -1,10 +1,5 @@
 #version 430 core
 
-// Buffer binding point for the attractor uniform block
-layout(std140, binding = 0) uniform attractor_block {
-    vec4 attractor[64];   // xyz = position, w = mass
-};
-
 layout (local_size_x = 128) in;
 
 // Buffer containing pos and vel of particles
@@ -13,31 +8,72 @@ layout(rgba32f, binding = 1) uniform imageBuffer velocity_buffer;
 
 // Delta time
 uniform float dt;
+//no of particles
+uniform int particles;
+
+// Parameters for boids algorithm
+uniform float viewRadius;
+uniform float avoidRadius;
+uniform float cohesionWeight;
+uniform float alignmentWeight;
+uniform float separationWeight;
+
+uniform float boundary;
 
 void main() {
     // Read current position and velocity from buffer w.r.t invocationID
-    vec4 vel = imageLoad(velocity_buffer, int(gl_GlobalInvocationID.x));
-    vec4 pos = imageLoad(position_buffer, int(gl_GlobalInvocationID.x));
+    int particleIndex =  int(gl_GlobalInvocationID.x);
+    vec4 vel = imageLoad(velocity_buffer, particleIndex);
+    vec4 pos = imageLoad(position_buffer, particleIndex);
+
+    int i;
+    // Initialize variables for boids algorithm
+    vec3 flockHeading = vec3(0.0);
+    vec3 flockCentre = vec3(0.0);
+    vec3 separationHeading = vec3(0.0);
+    int numFlockmates = 0;
+    for(i = 0; i<particles; ++i)
+    {
+        if(i != particleIndex)
+        {
+            vec4 otherPos = imageLoad(position_buffer, i);
+            vec4 otherVel = imageLoad(velocity_buffer, i);
+            vec3 offset = otherPos.xyz - pos.xyz;
+            float dist = length(offset);
+            if(dist <= viewRadius){
+                flockHeading += otherVel.xyz;
+                flockCentre += otherPos.xyz;
+
+                if(dist < avoidRadius){
+                    separationHeading -= offset/dist;
+                }
+                numFlockmates++;
+            }
+        }
+    }
+    // Apply flocking behavior
+    if (numFlockmates > 0) {
+        flockHeading /= float(numFlockmates);
+        flockCentre /= float(numFlockmates);
+
+        // Calculate cohesion behavior (move towards the center of mass)
+        vec3 cohesion = normalize(flockCentre - pos.xyz) * cohesionWeight;
+
+        // Calculate alignment behavior (align particle's velocity with neighbors)
+        vec3 alignment = normalize(flockHeading - vel.xyz) * alignmentWeight;
+
+        // Calculate separation behavior (prevent collisions)
+        vec3 separation = separationHeading * separationWeight;
+
+        // Combine flocking behaviors
+        vec3 desiredVelocity = cohesion + alignment + separation;
+
+        // Update velocity scaled by dt
+        vel.xyz += desiredVelocity * dt;
+    }
 
     // Update position using curr vel * time
     pos.xyz += vel.xyz * dt;
-
-    // Update life of particle (w component)
-    pos.w -= 0.01 * dt;
-
-    int i;
-    // For each attractor
-    for(i = 0; i < 4; ++i) {
-        vec3 dist = normalize(attractor[i].xyz - pos.xyz); 
-        // Calculating force on each particle
-        vel.xyz += dt * dt * attractor[i].w * (dist / (dot(dist, dist) + 10.0));
-    }
-
-    // If the particle expires, reset it
-    if (pos.w <= 0.0) {
-        pos.xyz = -pos.xyz * 0.01;
-        pos.w += 1.0f;
-    }
 
     // Store new pos and velocity back into the buffer
     imageStore(position_buffer, int(gl_GlobalInvocationID.x), pos);
