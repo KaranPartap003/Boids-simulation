@@ -9,10 +9,13 @@
 #include <glm\gtc\random.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "Shader.h"
-int PARTICLE_COUNT = 128000;
+int PARTICLE_COUNT = 25600;
 
+GLfloat viewRadius, avoidRadius, cohesionWeight, alignmentWeight, separationWeight, boundary;
 
-GLuint position_buffer, velocity_buffer,position_tex, velocity_tex, attractorBuffer, VAO;
+GLuint dt, n, limit, view, avoid, cohesion, align, seperation;
+
+GLuint position_buffer, velocity_buffer,position_tex, velocity_tex, VAO;
 Shader shader, compute;
 
 GLint numOfWorkgroups = PARTICLE_COUNT / 128;
@@ -24,34 +27,34 @@ const float toRadians = 3.14159265f / 180.0f;
 
 std::vector<int> attractor_masses(numOfAttractors);
 
+void setUniforms(GLuint ID, double deltaTime)
+{
+    //setting deltatime
+    dt = glGetUniformLocation(ID, "dt");
+    glUniform1f(dt, deltaTime);
+    n = glGetUniformLocation(ID, "particles");
+    glUniform1i(n, PARTICLE_COUNT);
+    view = glGetUniformLocation(ID, "viewRadius");
+    glUniform1f(view, 0.1);
+    avoid = glGetUniformLocation(ID, "avoidRadius");
+    glUniform1f(avoid, 0.001);
+    cohesion = glGetUniformLocation(ID, "cohesionWeight");
+    glUniform1f(cohesion, 0.2);
+    align = glGetUniformLocation(ID, "alignmentWeight");
+    glUniform1f(align, 0.5);
+    seperation= glGetUniformLocation(ID, "separationWeight");
+    glUniform1f(seperation, 0.1);
+}
+
 void ComputeShaderPass(double deltaTime)
 {
     compute.UseShader();
 
-    //setting deltatime
-    GLuint loc = glGetUniformLocation(compute.GetID(), "dt");
-    glUniform1f(loc, deltaTime);
+    setUniforms(compute.GetID(), deltaTime);
+
     // Bind position and velocity buffers to image units
     glBindImageTexture(0, position_tex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
     glBindImageTexture(1, velocity_tex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
-    // Update the buffer containing the attractor positions and masses
-    glBindBuffer(GL_UNIFORM_BUFFER, attractorBuffer);
-    glm::vec4* attractors =(glm::vec4*)glMapBufferRange(GL_UNIFORM_BUFFER,
-                                                        0,
-                                                        64 * sizeof(glm::vec4),
-                                                        GL_MAP_WRITE_BIT |
-                                                        GL_MAP_INVALIDATE_BUFFER_BIT);
-    for (int i = 0; i < 64; i++)
-    {
-        attractors[i] = glm::vec4(sinf(deltaTime * (float)(i + 4) * 7.5f * 20.0f) * 50.0f,
-                        cosf(deltaTime * (float)(i + 7) * 3.9f * 20.0f) * 50.0f,
-                        sinf(deltaTime * (float)(i + 3) * 5.3f * 20.0f) *
-                        cosf(deltaTime * (float)(i + 5) * 9.1f) * 100.0f,
-                        attractor_masses[i]);
-    }
-    glUnmapBuffer(GL_UNIFORM_BUFFER);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
-
     // Dispatch compute shader
     glDispatchCompute(numOfWorkgroups, 1, 1);
 
@@ -92,9 +95,9 @@ void InitialiseBuffers()
     for (int i = 0; i < PARTICLE_COUNT; ++i)
     {
         // Generate random values for each component using glm::linearRand()
-        float x = glm::linearRand(-5.0f, 5.0f);
-        float y = glm::linearRand(-5.0f, 5.0f);
-        float z = glm::linearRand(-5.0f, 5.0f);
+        float x = glm::linearRand(-1.0f, 1.0f);
+        float y = glm::linearRand(-1.0f, 1.0f);
+        float z = glm::linearRand(0.0f, 1.0f);
         float w = glm::linearRand(0.0f, 1.0f);
         positions[i] = glm::vec4(x, y, z, w);
     }
@@ -123,9 +126,9 @@ void InitialiseBuffers()
     for (int i = 0; i < PARTICLE_COUNT; ++i)
     {
         // Generate random values for each component using glm::linearRand()
-        float x = glm::linearRand(-0.1f, 0.1f);
-        float y = glm::linearRand(-0.1f, 0.1f);
-        float z = glm::linearRand(-0.1f, 0.1f);
+        float x = glm::linearRand(-0.01f, 0.01f);
+        float y = glm::linearRand(-0.01f, 0.01f);
+        float z = glm::linearRand(-0.01f, 0.01f);
         velocities[i] = glm::vec4(x, y, z, 0);
     }
     glUnmapBuffer(GL_TEXTURE_BUFFER);
@@ -134,21 +137,6 @@ void InitialiseBuffers()
     glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, velocity_buffer);
     glBindTexture(GL_TEXTURE_BUFFER, 0);
 
-
-    //INITIALISING ATTRACTORS
-    glGenBuffers(1, &attractorBuffer);
-    glBindBuffer(GL_UNIFORM_BUFFER, attractorBuffer);
-    glBufferData(GL_UNIFORM_BUFFER, numOfAttractors * sizeof(glm::vec4), NULL, GL_DYNAMIC_DRAW);
-    glm::vec4* attractors = (glm::vec4*)glMapBufferRange(GL_UNIFORM_BUFFER, 0, numOfAttractors * sizeof(glm::vec4),
-                                GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-  
-    for (int i = 0; i < numOfAttractors; ++i)
-    {
-        attractor_masses[i] = glm::linearRand(0.5f, 1.0f);
-        attractors[i] = glm::vec4(0.0f, 0.0f, 0.0f, attractor_masses[i]);
-    }
-    glUnmapBuffer(GL_UNIFORM_BUFFER);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 int main(void)
