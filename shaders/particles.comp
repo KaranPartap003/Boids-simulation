@@ -41,13 +41,16 @@ void main() {
             vec3 offset = otherPos.xyz - pos.xyz;
             float dist = length(offset);
             if(dist <= viewRadius){
-                flockHeading += otherVel.xyz;
-                flockCentre += otherPos.xyz;
-
-                if(dist < avoidRadius){
-                    separationHeading -= offset/dist;
+                vec3 v1 = normalize(offset); //distance between particles
+                vec3 v2 = normalize(vel.xyz);//front vector
+                if(dot(v1, v2) >= FOV){ //FILTERING based on Field of view
+                    flockHeading += otherVel.xyz;
+                    flockCentre += otherPos.xyz;
+                    if(dist < avoidRadius){
+                        separationHeading -= v1;
+                    }
+                    numFlockmates++;
                 }
-                numFlockmates++;
             }
         }
     }
