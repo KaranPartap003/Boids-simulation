@@ -1,19 +1,22 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
-#include <fstream>
-#include <sstream>
 #include <vector>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp> 
 #include <glm\gtc\random.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "Shader.h"
+#include "Camera.h"
+#include "Window.h"
 int PARTICLE_COUNT = 25600;
 
+//-----------UI VARIABLES-------------//
 GLfloat viewRadius, avoidRadius, cohesionWeight, alignmentWeight, separationWeight, boundary;
+glm::vec3 Maxbndry = { 3.5f, 3.5f, 2.5f };
+glm::vec3 Minbndry = {-3.5f,-3.5f, -2.5f };
 
-GLuint dt, n, limit, view, avoid, cohesion, align, seperation;
+GLuint dt, n, Maxlimit, Minlimit ,view, avoid, cohesion, align, seperation, fov;
 
 GLuint position_buffer, velocity_buffer,position_tex, velocity_tex, VAO;
 Shader shader, compute;
@@ -21,6 +24,9 @@ Shader shader, compute;
 GLint numOfWorkgroups = PARTICLE_COUNT / 128;
 
 int numOfAttractors = 64;
+
+Window mainWindow;
+Camera camera;
 
 const float aspRatio = 1366 / 768;
 const float toRadians = 3.14159265f / 180.0f;
@@ -34,16 +40,22 @@ void setUniforms(GLuint ID, double deltaTime)
     glUniform1f(dt, deltaTime);
     n = glGetUniformLocation(ID, "particles");
     glUniform1i(n, PARTICLE_COUNT);
+    Maxlimit = glGetUniformLocation(ID, "MaxB");
+    glUniform3f(Maxlimit, Maxbndry.x, Maxbndry.y, Maxbndry.z);
+    Minlimit = glGetUniformLocation(ID, "MinB");
+    glUniform3f(Minlimit, Minbndry.x, Minbndry.y, Minbndry.z);
+    fov = glGetUniformLocation(ID, "FOV");
+    glUniform1f(fov, glm::cos(90 * toRadians));
     view = glGetUniformLocation(ID, "viewRadius");
-    glUniform1f(view, 0.1);
+    glUniform1f(view, 0.8);
     avoid = glGetUniformLocation(ID, "avoidRadius");
-    glUniform1f(avoid, 0.001);
+    glUniform1f(avoid, 0.05);
     cohesion = glGetUniformLocation(ID, "cohesionWeight");
-    glUniform1f(cohesion, 0.2);
+    glUniform1f(cohesion, 0.8);
     align = glGetUniformLocation(ID, "alignmentWeight");
-    glUniform1f(align, 0.5);
+    glUniform1f(align, 0.6);
     seperation= glGetUniformLocation(ID, "separationWeight");
-    glUniform1f(seperation, 0.1);
+    glUniform1f(seperation, 0.05);
 }
 
 void ComputeShaderPass(double deltaTime)
@@ -67,8 +79,8 @@ void RenderPass(double deltaTime)
     shader.UseShader();
     //setup mvp matrix
     glm::mat4 mvp = glm::mat4(1.0f);
-    mvp = glm::perspective(45.0f * toRadians, aspRatio, 0.1f, 1000.0f);
-    mvp = glm::translate(mvp, glm::vec3(0.0f, 0.0f, -5.0f));
+    mvp *= glm::perspective(glm::radians(60.0f), (GLfloat)mainWindow.GetBufferWidth() / mainWindow.GetBufferHeight(), 0.1f, 100.0f);
+    mvp *= camera.calculateViewMatrix();
     int loc = glGetUniformLocation(shader.GetID(), "mvp");
     glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(mvp));
     // Bind VAO and issue draw commands
@@ -95,11 +107,10 @@ void InitialiseBuffers()
     for (int i = 0; i < PARTICLE_COUNT; ++i)
     {
         // Generate random values for each component using glm::linearRand()
-        float x = glm::linearRand(-1.0f, 1.0f);
-        float y = glm::linearRand(-1.0f, 1.0f);
-        float z = glm::linearRand(0.0f, 1.0f);
-        float w = glm::linearRand(0.0f, 1.0f);
-        positions[i] = glm::vec4(x, y, z, w);
+        float x = glm::linearRand(-2.0f, 2.0f);
+        float y = glm::linearRand(-2.0f, 2.0f);
+        float z = glm::linearRand(-2.0f, 2.0f);
+        positions[i] = glm::vec4(x, y, z, 1.0f);
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), nullptr);
@@ -126,9 +137,9 @@ void InitialiseBuffers()
     for (int i = 0; i < PARTICLE_COUNT; ++i)
     {
         // Generate random values for each component using glm::linearRand()
-        float x = glm::linearRand(-0.01f, 0.01f);
-        float y = glm::linearRand(-0.01f, 0.01f);
-        float z = glm::linearRand(-0.01f, 0.01f);
+        float x = glm::linearRand(-0.5f,0.5f);
+        float y = glm::linearRand(-0.5f,0.5f);
+        float z = glm::linearRand(-0.5f,0.5f);
         velocities[i] = glm::vec4(x, y, z, 0);
     }
     glUnmapBuffer(GL_TEXTURE_BUFFER);
@@ -139,48 +150,13 @@ void InitialiseBuffers()
 
 }
 
-int main(void)
+int main()
 {
-    /* Initialize the library */
-    if (!glfwInit()) {
-        std::cout << "GLFW initialisation failed" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+    mainWindow = Window(1366, 768);
+    mainWindow.initialise();
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    // Core Profile
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    // Allow Forward Compatbility
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    camera = Camera(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, 0.0f, 5.0f, 0.1f);
 
-    /* Create a windowed mode window and its OpenGL context */
-    GLFWwindow* window = glfwCreateWindow(1366, 768, "Hello World", NULL, NULL);
-    if (!window)
-    {
-        fprintf(stderr, "Error: Window creation failed\n");
-        glfwTerminate();
-        return -1;
-    }
-    /* Make the window's context current */
-    glfwMakeContextCurrent(window);
-
-    // Allow modern extension features
-    glewExperimental = GL_TRUE;
-
-    GLenum error = glewInit();
-    if (error != GLEW_OK)
-    {
-        printf("Error: %s", glewGetErrorString(error));
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return 1;
-    }
-
-    // Setup Viewport size
-    glViewport(0, 0, 1366, 768);
-    
     shader.CreateFromFile("shaders/shader.vert", "shaders/shader.frag");
     compute.CreateFromFile("shaders/particles.comp");
 
@@ -191,14 +167,21 @@ int main(void)
 
     double previousTime = glfwGetTime();
     double deltaTime;
+
     /* Loop until the user closes the window */
-    while (!glfwWindowShouldClose(window))
+    while (!mainWindow.getShouldClose())
     {
         double currentTime = glfwGetTime();
         deltaTime = currentTime - previousTime;
         previousTime = currentTime;
+        /* Poll for and process events */
+        glfwPollEvents();
+
+        camera.keyControl(mainWindow.getKeys(), deltaTime);
+        camera.mouseControl(mainWindow.getXChange(), mainWindow.getYChange(), deltaTime);
+
         /* Render here */
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         ComputeShaderPass(deltaTime);
         RenderPass(deltaTime);
@@ -206,14 +189,10 @@ int main(void)
         // Unbind shader program
         glUseProgram(0);
         /* Swap front and back buffers */
-        glfwSwapBuffers(window);
-
-        /* Poll for and process events */
-        glfwPollEvents();
+        mainWindow.swapBuffer();
     }
     compute.ClearShader();
     shader.ClearShader();
-    glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
 }
