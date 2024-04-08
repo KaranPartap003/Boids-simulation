@@ -2,6 +2,8 @@
 
 layout (local_size_x = 128) in;
 
+const float toRadians = 3.14159265f / 180.0f;
+
 // Buffer containing pos and vel of particles
 layout(rgba32f, binding = 0) uniform imageBuffer position_buffer;
 layout(rgba32f, binding = 1) uniform imageBuffer velocity_buffer;
@@ -17,8 +19,9 @@ uniform float avoidRadius;
 uniform float cohesionWeight;
 uniform float alignmentWeight;
 uniform float separationWeight;
-
-uniform float boundary;
+uniform vec3 MaxB;
+uniform vec3 MinB;
+uniform float FOV;
 
 void main() {
     // Read current position and velocity from buffer w.r.t invocationID
@@ -69,11 +72,18 @@ void main() {
         vec3 separation = separationHeading * separationWeight;
 
         // Combine flocking behaviors
-        vec3 desiredVelocity = cohesion + alignment + separation;
+        vec3 desiredVelocity =  cohesion + alignment + separation;
 
         // Update velocity scaled by dt
         vel.xyz += desiredVelocity * dt;
     }
+    //keeping boids within a certain range
+    if(pos.x < MinB.x || pos.x > MaxB.x)
+        vel.x = -0.6 * vel.x;
+    if(pos.y < MinB.y || pos.y > MaxB.y)
+        vel.y = -0.6 * vel.y;
+    if(pos.z < MinB.z || pos.z > MaxB.z)
+        vel.z = -0.6 * vel.z;
 
     // Update position using curr vel * time
     pos.xyz += vel.xyz * dt;
