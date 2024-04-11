@@ -2,11 +2,10 @@
 
 layout (local_size_x = 128) in;
 
-const float toRadians = 3.14159265f / 180.0f;
-
 // Buffer containing pos and vel of particles
 layout(rgba32f, binding = 0) uniform imageBuffer position_buffer;
 layout(rgba32f, binding = 1) uniform imageBuffer velocity_buffer;
+layout(rgba32f, binding = 2) uniform imageBuffer color_buffer;
 
 // Delta time
 uniform float dt;
@@ -19,6 +18,7 @@ uniform float avoidRadius;
 uniform float cohesionWeight;
 uniform float alignmentWeight;
 uniform float separationWeight;
+uniform float boundary;
 uniform vec3 MaxB;
 uniform vec3 MinB;
 uniform float FOV;
@@ -28,27 +28,31 @@ void main() {
     int particleIndex =  int(gl_GlobalInvocationID.x);
     vec4 vel = imageLoad(velocity_buffer, particleIndex);
     vec4 pos = imageLoad(position_buffer, particleIndex);
+    vec4 col = imageLoad(position_buffer, particleIndex);
 
     int i;
     // Initialize variables for boids algorithm
     vec3 flockHeading = vec3(0.0);
     vec3 flockCentre = vec3(0.0);
     vec3 separationHeading = vec3(0.0);
+    vec4 flockColor = vec4(0.0);
     int numFlockmates = 0;
     for(i = 0; i<particles; ++i)
     {
         if(i != particleIndex)
         {
             vec4 otherPos = imageLoad(position_buffer, i);
-            vec4 otherVel = imageLoad(velocity_buffer, i);
             vec3 offset = otherPos.xyz - pos.xyz;
             float dist = length(offset);
             if(dist <= viewRadius){
                 vec3 v1 = normalize(offset); //distance between particles
                 vec3 v2 = normalize(vel.xyz);//front vector
                 if(dot(v1, v2) >= FOV){ //FILTERING based on Field of view
+                    vec4 otherVel = imageLoad(velocity_buffer, i);
+                    vec4 otherColor = imageLoad(color_buffer, i);
                     flockHeading += otherVel.xyz;
                     flockCentre += otherPos.xyz;
+                    flockColor += otherColor;
                     if(dist < avoidRadius){
                         separationHeading -= v1;
                     }
@@ -76,19 +80,21 @@ void main() {
 
         // Update velocity scaled by dt
         vel.xyz += desiredVelocity * dt;
+        
+        col = flockColor/numFlockmates;
     }
-    //keeping boids within a certain range
-    if(pos.x < MinB.x || pos.x > MaxB.x)
-        vel.x = -0.6 * vel.x;
-    if(pos.y < MinB.y || pos.y > MaxB.y)
-        vel.y = -0.6 * vel.y;
-    if(pos.z < MinB.z || pos.z > MaxB.z)
-        vel.z = -0.6 * vel.z;
 
+    if (any(lessThan(pos.xyz, MinB)) || any(greaterThan(pos.xyz, MaxB))) {
+        // Calculate a vector pointing towards the center of the simulation space
+        vec3 centerDirection = -normalize(pos.xyz);
+
+        // Rotate the boid's velocity to point away from the boundary
+        vel.xyz = normalize(mix(vel.xyz, centerDirection, 0.8));
+    }
     // Update position using curr vel * time
     pos.xyz += vel.xyz * dt;
-
     // Store new pos and velocity back into the buffer
     imageStore(position_buffer, int(gl_GlobalInvocationID.x), pos);
     imageStore(velocity_buffer, int(gl_GlobalInvocationID.x), vel);
+    imageStore(color_buffer, int(gl_GlobalInvocationID.x), col);
 }
