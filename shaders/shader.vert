@@ -1,12 +1,16 @@
 #version 430
 
 layout (location = 0) in vec4 pos;
-out float intensity;
+layout (location = 1) in vec4 InColor;
 
-uniform mat4 mvp;
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 perspective;
+
+out vec4 fColor;
 
 void main()
 {
-	gl_Position =  mvp * pos; 
-	intensity = pos.w;
+	gl_Position =  perspective * view * model * pos; 
+	fColor = InColor;
 }
