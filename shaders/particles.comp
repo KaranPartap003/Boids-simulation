@@ -2,10 +2,14 @@
 
 layout (local_size_x = 128) in;
 
-// Buffer containing pos and vel of particles
+// Buffer containing curr pos and vel of particles
 layout(rgba32f, binding = 0) uniform imageBuffer position_buffer;
 layout(rgba32f, binding = 1) uniform imageBuffer velocity_buffer;
 layout(rgba32f, binding = 2) uniform imageBuffer color_buffer;
+
+layout(rgba32f, binding = 3) uniform imageBuffer PrevPosition_buffer;
+layout(rgba32f, binding = 4) uniform imageBuffer PrevVelocity_buffer;
+layout(rgba32f, binding = 5) uniform imageBuffer PrevColor_buffer;
 
 // Delta time
 uniform float dt;
@@ -26,9 +30,9 @@ uniform float FOV;
 void main() {
     // Read current position and velocity from buffer w.r.t invocationID
     int particleIndex =  int(gl_GlobalInvocationID.x);
-    vec4 vel = imageLoad(velocity_buffer, particleIndex);
-    vec4 pos = imageLoad(position_buffer, particleIndex);
-    vec4 col = imageLoad(position_buffer, particleIndex);
+    vec4 vel = imageLoad(PrevVelocity_buffer, particleIndex);
+    vec4 pos = imageLoad(PrevPosition_buffer, particleIndex);
+    vec4 col = imageLoad(PrevPosition_buffer, particleIndex);
 
     int i;
     // Initialize variables for boids algorithm
@@ -49,10 +53,9 @@ void main() {
                 vec3 v2 = normalize(vel.xyz);//front vector
                 if(dot(v1, v2) >= FOV){ //FILTERING based on Field of view
                     vec4 otherVel = imageLoad(velocity_buffer, i);
-                    vec4 otherColor = imageLoad(color_buffer, i);
                     flockHeading += otherVel.xyz;
                     flockCentre += otherPos.xyz;
-                    flockColor += otherColor;
+                    flockColor += imageLoad(color_buffer, i);
                     if(dist < avoidRadius){
                         separationHeading -= v1;
                     }
@@ -83,13 +86,12 @@ void main() {
         
         col = flockColor/numFlockmates;
     }
-
     if (any(lessThan(pos.xyz, MinB)) || any(greaterThan(pos.xyz, MaxB))) {
         // Calculate a vector pointing towards the center of the simulation space
         vec3 centerDirection = -normalize(pos.xyz);
 
         // Rotate the boid's velocity to point away from the boundary
-        vel.xyz = normalize(mix(vel.xyz, centerDirection, 0.8));
+        vel.xyz = normalize(mix(vel.xyz, centerDirection, 0.1)) * 0.5;
     }
     // Update position using curr vel * time
     pos.xyz += vel.xyz * dt;
